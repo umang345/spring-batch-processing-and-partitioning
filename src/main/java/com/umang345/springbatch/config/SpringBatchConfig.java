@@ -15,6 +15,10 @@ import org.springframework.batch.item.file.transform.DelimitedLineTokenizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.task.SimpleAsyncTaskExecutor;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.batch.core.Step;
+import org.springframework.batch.core.Job;
 
 /***
  * Configuration class for Batch Processing
@@ -93,4 +97,41 @@ public class SpringBatchConfig
         writer.setMethodName("save");
         return writer;
     }
+
+    /***
+     * Bean that return built Step class Object using StepBuilderFactory
+     * @return the built Step object
+     */
+    @Bean
+    public Step step1() {
+        return stepBuilderFactory.get("csv-step").<Customer, Customer>chunk(10)
+                .reader(reader())
+                .processor(processor())
+                .writer(writer())
+                .taskExecutor(taskExecutor())
+                .build();
+    }
+
+    /***
+     * Bean to get the cuilt instance of Job class using JobBuilderFactory
+     * @return The constructed Job class instance
+     */
+    @Bean
+    public Job runJob() {
+        return jobBuilderFactory.get("importCustomers")
+                .flow(step1()).end().build();
+
+    }
+
+    /***
+     * Bean for Asynchronous Task Executor
+     * @return TaskExecutor Object
+     */
+    @Bean
+    public TaskExecutor taskExecutor() {
+        SimpleAsyncTaskExecutor asyncTaskExecutor = new SimpleAsyncTaskExecutor();
+        asyncTaskExecutor.setConcurrencyLimit(10);
+        return asyncTaskExecutor;
+    }
+
 }
