@@ -70,6 +70,14 @@ public class SpringBatchConfig
         lineMapper.setLineTokenizer(lineTokenizer);
         lineMapper.setFieldSetMapper(fieldSetMapper);
         return lineMapper;
+    }
 
+    /***
+     * Bean for ItemProcessor
+     * @return The implementation of ItemProcessor as a Bean
+     */
+    @Bean
+    public CustomerProcessor processor() {
+        return new CustomerProcessor();
     }
 }
