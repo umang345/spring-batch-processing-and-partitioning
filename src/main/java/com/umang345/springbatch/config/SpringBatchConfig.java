@@ -1,11 +1,14 @@
 package com.umang345.springbatch.config;
 
 import com.umang345.springbatch.entity.Customer;
+import com.umang345.springbatch.partition.ColumnRangePartitioner;
 import com.umang345.springbatch.repository.CustomerRepository;
 import lombok.AllArgsConstructor;
 import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
 import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
+import org.springframework.batch.core.partition.PartitionHandler;
+import org.springframework.batch.core.partition.support.TaskExecutorPartitionHandler;
 import org.springframework.batch.item.data.RepositoryItemWriter;
 import org.springframework.batch.item.file.FlatFileItemReader;
 import org.springframework.batch.item.file.LineMapper;
@@ -19,6 +22,7 @@ import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.Job;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 /***
  * Configuration class for Batch Processing
@@ -39,9 +43,9 @@ public class SpringBatchConfig
     private StepBuilderFactory stepBuilderFactory;
 
     /***
-     * Injecting Customer JPARepository
+     * Injecting CustomerWriter Dependency
      */
-    private CustomerRepository customerRepository;
+     private CustomerWriter customerWriter;
 
     /***
      * Creates a Bean of Type FlatFileItemReader to read the content from the csv file
@@ -87,15 +91,25 @@ public class SpringBatchConfig
     }
 
     /***
-     * Bean for ItemWriter
-     * @return Implementation of ItemWriter<T> as RepositoryItemWriter<Customer>
+     *  Bean for PartitionHandler to set properties like thread number and grid size for Partitioner implementation
+     * @return
      */
     @Bean
-    public RepositoryItemWriter<Customer> writer() {
-        RepositoryItemWriter<Customer> writer = new RepositoryItemWriter<>();
-        writer.setRepository(customerRepository);
-        writer.setMethodName("save");
-        return writer;
+    public PartitionHandler partitionHandler() {
+        TaskExecutorPartitionHandler taskExecutorPartitionHandler = new TaskExecutorPartitionHandler();
+        taskExecutorPartitionHandler.setGridSize(4);
+        taskExecutorPartitionHandler.setTaskExecutor(taskExecutor());
+        taskExecutorPartitionHandler.setStep(slaveStep());
+        return taskExecutorPartitionHandler;
+    }
+
+    /***
+     * Bean for Partitioner Implementation
+     * @return
+     */
+    @Bean
+    public ColumnRangePartitioner partitioner() {
+        return new ColumnRangePartitioner();
     }
 
     /***
@@ -103,12 +117,24 @@ public class SpringBatchConfig
      * @return the built Step object
      */
     @Bean
-    public Step step1() {
-        return stepBuilderFactory.get("csv-step").<Customer, Customer>chunk(10)
+    public Step slaveStep() {
+        return stepBuilderFactory.get("slaveStep").<Customer, Customer>chunk(10)
                 .reader(reader())
                 .processor(processor())
-                .writer(writer())
+                .writer(customerWriter)
                 .taskExecutor(taskExecutor())
+                .build();
+    }
+
+    /***
+     * Master Step Bean to operate on Slave Step Bean
+     * @return
+     */
+    @Bean
+    public Step masterStep() {
+        return stepBuilderFactory.get("masterStep").
+                partitioner(slaveStep().getName(), partitioner())
+                .partitionHandler(partitionHandler())
                 .build();
     }
 
@@ -119,19 +145,21 @@ public class SpringBatchConfig
     @Bean
     public Job runJob() {
         return jobBuilderFactory.get("importCustomers")
-                .flow(step1()).end().build();
+                .flow(slaveStep()).end().build();
 
     }
 
     /***
-     * Bean for Asynchronous Task Executor
+     * Bean for ThreadPool Task Executor
      * @return TaskExecutor Object
      */
     @Bean
     public TaskExecutor taskExecutor() {
-        SimpleAsyncTaskExecutor asyncTaskExecutor = new SimpleAsyncTaskExecutor();
-        asyncTaskExecutor.setConcurrencyLimit(10);
-        return asyncTaskExecutor;
+        ThreadPoolTaskExecutor taskExecutor = new ThreadPoolTaskExecutor();
+        taskExecutor.setMaxPoolSize(4);
+        taskExecutor.setCorePoolSize(4);
+        taskExecutor.setQueueCapacity(4);
+        return taskExecutor;
     }
 
 }
